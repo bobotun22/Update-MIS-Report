@@ -390,7 +390,7 @@ def convert_xls_to_xlsx(file_bytes):
 st.set_page_config(page_title="Weekly Transaction MIS Report", layout="centered")
 
 st.title("💳 Weekly Transaction MIS Report")
-st.subheader("Weekly Transaction Monitoring Report")
+st.subheader("Transaction Report")
 st.caption("© Version 4 | Developed by Bo Bo Tun")
 
 # Web File Uploader Widget
