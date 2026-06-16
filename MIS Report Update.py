@@ -1,10 +1,11 @@
 import os
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk, simpledialog, scrolledtext
+import io
+import re
+import pandas as pd
+import openpyxl
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Font
-import pandas as pd
-import re
+import streamlit as st
 
 # --- Function Definitions ---
 def sheet_exists(wb, name):
@@ -80,7 +81,6 @@ def add_terminal_details_sheet(wb_main, terminal_aggregation):
     }
 
     # Initializing variables to track custom group sums (Amount SUM and Total Use Card)
-    
     ygn_branch_sum = 0.0
     ygn_branch_cards = 0  
     
@@ -92,8 +92,6 @@ def add_terminal_details_sheet(wb_main, terminal_aggregation):
     
     other_public_sum = 0.0
     other_public_cards = 0
-    
-
     
     # Add terminal data to the sheet using aggregated data
     for info in terminal_info:
@@ -164,7 +162,7 @@ def add_terminal_details_sheet(wb_main, terminal_aggregation):
     # Add an empty row for visual separation
     ws_terminal.append([])
     
-    # Append the specific category summary definitions (Now including Total Use Card in column 5)
+    # Append the specific category summary definitions
     summary_start_row = ws_terminal.max_row + 1
     ws_terminal.append(["", "", "YGN Branch Total SUM", "", ygn_branch_cards, "", "", "", "", ygn_branch_sum, "", ""])
     ws_terminal.append(["", "", "YGN Public Total SUM", "", ygn_public_cards, "", "", "", "", ygn_public_sum, "", ""])
@@ -332,11 +330,11 @@ def process_transaction_data(ws_main, wb_main):
         tranx_amount_idx = amount_idx  
     
     if amount_idx == -1 or fee_idx == -1 or refno_idx == -1:
-        messagebox.showerror("Error", "❌ Could not find required columns.")
+        st.error("❌ Could not find required columns (Amount, Fee, or Ref).")
         return None, None
 
     if terminal_id_idx == -1:
-        messagebox.showerror("Error", "❌ Could not find terminal column.")
+        st.error("❌ Could not find terminal column.")
         return None, None
 
     terminal_ids = [
@@ -376,54 +374,46 @@ def process_transaction_data(ws_main, wb_main):
     add_terminal_transaction_sheets(wb_main, terminal_transactions, header)
     return terminal_aggregation, terminal_ids
 
-def convert_xls_to_xlsx(xls_path):
+def convert_xls_to_xlsx(file_bytes):
     try:
-        xls = pd.ExcelFile(xls_path, engine='xlrd')
-        first_sheet = xls.sheet_names[0]
-        df = pd.read_excel(xls, sheet_name=first_sheet)
-        xlsx_path = xls_path + "_converted.xlsx"
-        df.to_excel(xlsx_path, sheet_name="Sheet1", index=False)
-        return xlsx_path
+        # Read legacy .xls dynamically from memory bytes
+        df = pd.read_excel(io.BytesIO(file_bytes), engine='xlrd')
+        xlsx_buffer = io.BytesIO()
+        df.to_excel(xlsx_buffer, index=False)
+        xlsx_buffer.seek(0)
+        return xlsx_buffer
     except Exception as e:
-        messagebox.showerror("Conversion Error", f"❌ Failed to convert .xls to .xlsx\n\n{e}")
+        st.error(f"❌ Failed to convert legacy .xls workbook to newer formatting structure.\n\nDetails: {e}")
         return None
 
-def load_data(progress=None, status_label=None):
-    if progress:
-        progress["value"] = 0
-        progress.update()
-        status_label.config(text="📂 Opening file...")
+# --- Streamlit Web UI Configuration ---
+st.set_page_config(page_title="Weekly ATM Transaction MIS Report", layout="centered")
 
-    file_path = filedialog.askopenfilename(
-        title="Select Excel File",
-        filetypes=[("Excel Files", "*.xls *.xlsx *.xlsm"), ("All Files", "*.*")]
-    )
+st.title("💳 Weekly ATM Transaction MIS Report")
+st.subheader("Weekly & Monthly ATM Transaction Monitoring Report")
+st.caption("© Version 3 | Developed by Bo Bo Tun")
 
-    if not file_path:
-        messagebox.showwarning("No File", "No file selected.")
-        if status_label:
-            status_label.config(text="⚠️ Cancelled.")
-        return
+# Web File Uploader Widget
+uploaded_file = st.file_uploader("📥 Import Data Excel File (FeelSwitch)", type=["xls", "xlsx", "xlsm"])
 
-    ext = os.path.splitext(file_path)[1].lower()
-
-    if ext == ".xls":
-        if status_label:
-            status_label.config(text="🔄 Converting .xls to .xlsx...")
-        converted = convert_xls_to_xlsx(file_path)
-        if not converted:
-            return
-        file_path = converted
+if uploaded_file is not None:
+    st.info("📂 Opening and reading file stream...")
+    file_bytes = uploaded_file.read()
+    
+    # Process if legacy file format (.xls)
+    if uploaded_file.name.lower().endswith(".xls"):
+        st.warning("🔄 Detected old legacy format .xls. Converting to memory standard matrix...")
+        converted_buffer = convert_xls_to_xlsx(file_bytes)
+        if not converted_buffer:
+            st.stop()
+        file_bytes = converted_buffer.getvalue()
 
     try:
-        if status_label:
-            status_label.config(text="📊 Loading workbook...")
-        wb_data = load_workbook(file_path)
+        st.info("📊 Loading workbook layers into active schema...")
+        wb_data = load_workbook(io.BytesIO(file_bytes))
     except Exception as e:
-        messagebox.showerror("Error", f"❌ Failed to open the Excel file.\n\n{e}")
-        if status_label:
-            status_label.config(text="❌ Error opening file.")
-        return
+        st.error(f"❌ Failed to parse structures inside Excel file layer directly.\n\nDetails: {e}")
+        st.stop()
 
     ws_data = wb_data["Sheet1"] if "Sheet1" in wb_data.sheetnames else wb_data.active
 
@@ -431,86 +421,32 @@ def load_data(progress=None, status_label=None):
     ws_main = wb_main.active
     ws_main.title = "Main"
 
+    # Append data structure safely
     for row in ws_data.iter_rows():
         ws_main.append([cell.value for cell in row])
     wb_data.close()
 
-    if status_label:
-        status_label.config(text="⚙️ Processing...")
-    if progress:
-        progress["value"] = 50
-        progress.update()
-
+    st.info("⚙️ Core script engines operational. Parsing transactional entries...")
+    
     result = process_transaction_data(ws_main, wb_main)
-    if result is None or result[0] is None:
-        return
+    if result and result[0] is not None:
+        terminal_aggregation, terminal_ids = result
         
-    terminal_aggregation, terminal_ids = result
-
-    if progress:
-        progress["value"] = 90
-        progress.update()
-
-    add_terminal_details_sheet(wb_main, terminal_aggregation)
-
-    if progress:
-        progress["value"] = 100
-        progress.update()
-
-    save_path = filedialog.asksaveasfilename(
-        defaultextension=".xlsx",
-        filetypes=[("Excel Workbook", "*.xlsx")],
-        title="Save Processed File As"
-    )
-
-    if not save_path:
-        messagebox.showinfo("Canceled", "Save operation canceled.")
-        if status_label:
-            status_label.config(text="⚠️ Save canceled.")
-        return
-
-    try:
-        wb_main.save(save_path)
-        if status_label:
-            status_label.config(text="✅ Saved successfully.")
-        messagebox.showinfo("Success", f"✅ File saved to:\n{save_path}")
-    except Exception as e:
-        messagebox.showerror("Error", f"❌ Failed to save the file.\n\n{e}")
-        if status_label:
-            status_label.config(text="❌ Error saving file.")
-
-# --- GUI Setup ---
-root = tk.Tk()
-root.title("💳 Weekly ATM Transaction MIS Report")
-root.geometry("520x380")
-root.resizable(False, False)
-root.configure(bg="#f5f6fa")
-
-frame = tk.Frame(root, padx=30, pady=20, bg="#f5f6fa")
-frame.pack(expand=True, fill="both")
-
-logo_label = tk.Label(frame, text="Excel Transaction Processor", font=("Arial", 17, "bold"), fg="#2f3640", bg="#f5f6fa")
-logo_label.pack(pady=(0, 12))
-
-desc_label = tk.Label(frame, text="Weekly & Monthly ATM Transaction Monitoring Report", font=("Arial", 11), fg="#353b48", bg="#f5f6fa")
-desc_label.pack(pady=(0, 10))
-
-progress = ttk.Progressbar(frame, orient="horizontal", length=400, mode="determinate")
-progress.pack(pady=(10, 5))
-
-status_label = tk.Label(frame, text="Ready.", font=("Arial", 12), fg="#40739e", bg="#f5f6fa")
-status_label.pack(pady=(4, 14))
-
-btn = tk.Button(
-    frame,
-    text="📥 Import Data Excel File (FeelSwitch)",
-    command=lambda: load_data(progress, status_label),
-    width=40, height=2, bg="#2410D9", fg="white", font=("Arial", 12, "bold"),
-    activebackground="#324ebd", bd=0, relief="flat", highlightthickness=0
-)
-btn.pack(pady=(8, 8))
-
-credit_label = tk.Label(frame, text="© Version 3 | Developed by Bo Bo Tun", font=("Arial", 9, "italic bold"), fg="#a5b1c2", bg="#f5f6fa")
-credit_label.pack(side="bottom", pady=(18, 0)) 
-
-root.mainloop()
+        # Compile Terminal Breakdown configurations
+        add_terminal_details_sheet(wb_main, terminal_aggregation)
+        
+        # Save working directory updates out directly to memory streams 
+        processed_file_buffer = io.BytesIO()
+        wb_main.save(processed_file_buffer)
+        processed_file_buffer.seek(0)
+        
+        st.success("✅ Script processed reports cleanly! Ready for client extraction.")
+        
+        # Web Native Safe Download Button Interface
+        st.download_button(
+            label="💾 Download Processed Excel File",
+            data=processed_file_buffer,
+            file_name="Processed_MIS_Report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
