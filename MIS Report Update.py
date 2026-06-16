@@ -387,11 +387,11 @@ def convert_xls_to_xlsx(file_bytes):
         return None
 
 # --- Streamlit Web UI Configuration ---
-st.set_page_config(page_title="Weekly ATM Transaction MIS Report", layout="centered")
+st.set_page_config(page_title="Weekly Transaction MIS Report", layout="centered")
 
-st.title("💳 Weekly ATM Transaction MIS Report")
-st.subheader("Weekly & Monthly ATM Transaction Monitoring Report")
-st.caption("© Version 3 | Developed by Bo Bo Tun")
+st.title("💳 Weekly Transaction MIS Report")
+st.subheader("Weekly Transaction Monitoring Report")
+st.caption("© Version 4 | Developed by Bo Bo Tun")
 
 # Web File Uploader Widget
 uploaded_file = st.file_uploader("📥 Import Data Excel File (FeelSwitch)", type=["xls", "xlsx", "xlsm"])
